@@ -531,27 +531,32 @@ template <int dim> void Solid<dim>::make_grid() {
     GridGenerator::hyper_rectangle(
         triangulation,
         (dim == 3 ? Point<dim>(0.0, 0.0, 0.0) : Point<dim>(0.0, 0.0)),
-        (dim == 3 ? Point<dim>(1.0, 1.0, 1.0) : Point<dim>(1.0, 1.0)), true);
+        (dim == 3 ? Point<dim>(1.0, 1.0, 1.0) : Point<dim>(1.0, 1.0)), false);
     GridTools::scale(parameters.scale, triangulation);
     triangulation.refine_global(std::max(1U, parameters.global_refinement));
 
     vol_reference = GridTools::volume(triangulation);
     std::cout << "Grid:\n\t Reference volume: " << vol_reference << std::endl;
-
+    int cnt = 0;
     for (const auto &cell : triangulation.active_cell_iterators())
         for (const auto &face : cell->face_iterators()) {
-            if (face->at_boundary() == true &&
-                face->center()[1] == 1.0 * parameters.scale) {
+            if (face->at_boundary() == true && face->center()[1] == 1.0 * parameters.scale) {
                 if (dim == 3) {
-                    if (face->center()[0] < 0.5 * parameters.scale &&
-                        face->center()[2] < 0.5 * parameters.scale)
-                        face->set_boundary_id(6);
+                    if ((0.25 * parameters.scale < face->center()[0] && face->center()[0] < 0.75 * parameters.scale) && (0.25 * parameters.scale < face->center()[2] && face->center()[2] < 0.75 * parameters.scale))
+                        face->set_boundary_id(1);
+                    
                 } else {
                     if (face->center()[0] < 0.5 * parameters.scale)
                         face->set_boundary_id(6);
                 }
             }
+            else if (face -> at_boundary() == true && face-> center()[1] == 0.0) {
+                face -> set_boundary_id(0);
+                cnt ++;
+            }
         }
+    
+    std::cout << cnt << std::endl;
 }
 
 template <int dim> void Solid<dim>::make_grid_with_custom_mesh() {
@@ -561,7 +566,7 @@ template <int dim> void Solid<dim>::make_grid_with_custom_mesh() {
     std::cout << "Current working directory: "
               << std::filesystem::current_path() << std::endl;
 
-    const std::string filename = "output.vtk";
+    const std::string filename = "output_sample.ucd";
     std::ifstream input_file(filename);
 
     if (!input_file.is_open()) {
@@ -570,32 +575,23 @@ template <int dim> void Solid<dim>::make_grid_with_custom_mesh() {
         return;
     }
 
-    grid_in.read_vtk(input_file);
+    grid_in.read_ucd(input_file);
     std::cout << "Successfully read UCD file: " << filename << std::endl;
     GridTools::scale(0.01, triangulation);
-    for (const auto &cell : triangulation.active_cell_iterators()) {
-        for (unsigned int f = 0; f < cell->n_faces(); ++f) {
-            const auto &face = cell->face(f);
-
-            // Face 정점 개수 확인
-            if (face->n_vertices() == 3) {
-                std::cout << "Face with incorrect vertices count detected! "
-                          << "Expected: 3, Found: " << face->n_vertices()
-                          << std::endl;
-
-                // Face의 정점 인덱스 출력
-                std::cout << "Face vertices: ";
-                for (unsigned int v = 0; v < face->n_vertices(); ++v) {
-                    std::cout << face->vertex_index(v) << " ";
-                }
-                std::cout << std::endl;
-            }
-        }
-    }
 
     vol_reference = GridTools::volume(triangulation);
     std::cout << "Grid:\n\t Reference volume: " << vol_reference << std::endl;
+    
+// Find min and max x-coordinates
+    double x_min = std::numeric_limits<double>::max();
+    double x_max = std::numeric_limits<double>::lowest();
 
+    for (const auto &vertex : triangulation.get_vertices()) {
+        x_min = std::min(x_min, vertex[0]);
+        x_max = std::max(x_max, vertex[0]);
+    }
+
+    std::cout << "x_min: " << x_min << ", x_max: " << x_max << std::endl;
     int boundary_cnt_min = 0;
     int boundary_cnt_max = 0;
     //  Assign boundary IDs based on x value
@@ -604,7 +600,6 @@ template <int dim> void Solid<dim>::make_grid_with_custom_mesh() {
             if (cell->face(f)->at_boundary()) {
                 const Point<dim> face_center = cell->face(f)->center();
                 const double x_coord = face_center[0];
-
                 // Assign boundary (x == -1) for fixed b.c.
                 if (std::abs(x_coord + 0.38) < 1e-2) {
                     cell->face(f)->set_boundary_id(0);
@@ -1083,7 +1078,7 @@ void Solid<dim>::assemble_system_one_cell(
     }
 
     for (const auto &face : cell->face_iterators())
-        if (face->at_boundary() && face->boundary_id() == 6) {
+        if (face->at_boundary() && face->boundary_id() == 1) {
             scratch.fe_face_values.reinit(cell, face);
 
             for (const unsigned int f_q_point :
@@ -1092,7 +1087,7 @@ void Solid<dim>::assemble_system_one_cell(
                     scratch.fe_face_values.normal_vector(f_q_point);
 
                 static const double p0 =
-                    -4.0 / (parameters.scale * parameters.scale);
+                    -1.0 / (parameters.scale * parameters.scale);
                 const double time_ramp = (time.current() / time.end());
                 const double pressure = p0 * parameters.p_p0 * time_ramp;
                 const Tensor<1, dim> traction = pressure * N;
@@ -1136,6 +1131,9 @@ template <int dim> void Solid<dim>::make_constraints(const unsigned int it_nr) {
 
         const FEValuesExtractors::Scalar x_displacement(0);
         const FEValuesExtractors::Scalar y_displacement(1);
+        const FEValuesExtractors::Scalar z_displacement(2);
+        //TODO: Add dim == 2 case (NOW: Fix leftmost face)
+        
 
         {
             const int boundary_id = 0;
@@ -1143,65 +1141,11 @@ template <int dim> void Solid<dim>::make_constraints(const unsigned int it_nr) {
             VectorTools::interpolate_boundary_values(
                 dof_handler, boundary_id,
                 Functions::ZeroFunction<dim>(n_components), constraints,
-                fe.component_mask(x_displacement));
+                (
+                 fe.component_mask(y_displacement)));
         }
-        {
-            const int boundary_id = 2;
-
-            VectorTools::interpolate_boundary_values(
-                dof_handler, boundary_id,
-                Functions::ZeroFunction<dim>(n_components), constraints,
-                fe.component_mask(y_displacement));
-        }
-
-        if (dim == 3) {
-            const FEValuesExtractors::Scalar z_displacement(2);
-
-            {
-                const int boundary_id = 3;
-
-                VectorTools::interpolate_boundary_values(
-                    dof_handler, boundary_id,
-                    Functions::ZeroFunction<dim>(n_components), constraints,
-                    (fe.component_mask(x_displacement) |
-                     fe.component_mask(z_displacement)));
-            }
-            {
-                const int boundary_id = 4;
-
-                VectorTools::interpolate_boundary_values(
-                    dof_handler, boundary_id,
-                    Functions::ZeroFunction<dim>(n_components), constraints,
-                    fe.component_mask(z_displacement));
-            }
-
-            {
-                const int boundary_id = 6;
-
-                VectorTools::interpolate_boundary_values(
-                    dof_handler, boundary_id,
-                    Functions::ZeroFunction<dim>(n_components), constraints,
-                    (fe.component_mask(x_displacement) |
-                     fe.component_mask(z_displacement)));
-            }
-        } else {
-            {
-                const int boundary_id = 3;
-
-                VectorTools::interpolate_boundary_values(
-                    dof_handler, boundary_id,
-                    Functions::ZeroFunction<dim>(n_components), constraints,
-                    (fe.component_mask(x_displacement)));
-            }
-            {
-                const int boundary_id = 6;
-
-                VectorTools::interpolate_boundary_values(
-                    dof_handler, boundary_id,
-                    Functions::ZeroFunction<dim>(n_components), constraints,
-                    (fe.component_mask(x_displacement)));
-            }
-        }
+       
+        
     } else {
         if (constraints.has_inhomogeneities()) {
             AffineConstraints<double> homogeneous_constraints(constraints);
