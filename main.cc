@@ -18,9 +18,8 @@
  * Modifier: Minhyung Lee (KAIST, mhlee@kaist.ac.kr)
  */
 
-
 #include "FEM.h"
-#include "utill/Parameters.h"
+#include "util/Parameters.h"
 
 namespace MLSolver {
 using namespace dealii;
@@ -531,7 +530,7 @@ template <int dim> void Solid<dim>::make_grid() {
     GridGenerator::hyper_rectangle(
         triangulation,
         (dim == 3 ? Point<dim>(0.0, 0.0, 0.0) : Point<dim>(0.0, 0.0)),
-        (dim == 3 ? Point<dim>(1.0, 1.0, 1.0) : Point<dim>(1.0, 1.0)), false);
+        (dim == 3 ? Point<dim>(1.0, 1.0, 1.0) : Point<dim>(1.0, 1.0)), true);
     GridTools::scale(parameters.scale, triangulation);
     triangulation.refine_global(std::max(1U, parameters.global_refinement));
 
@@ -540,22 +539,19 @@ template <int dim> void Solid<dim>::make_grid() {
     int cnt = 0;
     for (const auto &cell : triangulation.active_cell_iterators())
         for (const auto &face : cell->face_iterators()) {
-            if (face->at_boundary() == true && face->center()[1] == 1.0 * parameters.scale) {
+            if (face->at_boundary() == true &&
+                face->center()[1] == 1.0 * parameters.scale) {
                 if (dim == 3) {
-                    if ((0.25 * parameters.scale < face->center()[0] && face->center()[0] < 0.75 * parameters.scale) && (0.25 * parameters.scale < face->center()[2] && face->center()[2] < 0.75 * parameters.scale))
-                        face->set_boundary_id(1);
-                    
+                    if ((0.25 * parameters.scale < face->center()[0] && face->center()[0] < 0.75 * parameters.scale) &&
+                        (0.25 * parameters.scale < face->center()[2] && face->center()[2] < 0.75 * parameters.scale))
+                        face->set_boundary_id(6);
                 } else {
                     if (face->center()[0] < 0.5 * parameters.scale)
                         face->set_boundary_id(6);
                 }
             }
-            else if (face -> at_boundary() == true && face-> center()[1] == 0.0) {
-                face -> set_boundary_id(0);
-                cnt ++;
-            }
         }
-    
+
     std::cout << cnt << std::endl;
 }
 
@@ -581,8 +577,8 @@ template <int dim> void Solid<dim>::make_grid_with_custom_mesh() {
 
     vol_reference = GridTools::volume(triangulation);
     std::cout << "Grid:\n\t Reference volume: " << vol_reference << std::endl;
-    
-// Find min and max x-coordinates
+
+    // Find min and max x-coordinates
     double x_min = std::numeric_limits<double>::max();
     double x_max = std::numeric_limits<double>::lowest();
 
@@ -1078,7 +1074,7 @@ void Solid<dim>::assemble_system_one_cell(
     }
 
     for (const auto &face : cell->face_iterators())
-        if (face->at_boundary() && face->boundary_id() == 1) {
+        if (face->at_boundary() && face->boundary_id() == 6) {
             scratch.fe_face_values.reinit(cell, face);
 
             for (const unsigned int f_q_point :
@@ -1087,7 +1083,7 @@ void Solid<dim>::assemble_system_one_cell(
                     scratch.fe_face_values.normal_vector(f_q_point);
 
                 static const double p0 =
-                    -1.0 / (parameters.scale * parameters.scale);
+                    -4.0 / (parameters.scale * parameters.scale);
                 const double time_ramp = (time.current() / time.end());
                 const double pressure = p0 * parameters.p_p0 * time_ramp;
                 const Tensor<1, dim> traction = pressure * N;
@@ -1132,20 +1128,30 @@ template <int dim> void Solid<dim>::make_constraints(const unsigned int it_nr) {
         const FEValuesExtractors::Scalar x_displacement(0);
         const FEValuesExtractors::Scalar y_displacement(1);
         const FEValuesExtractors::Scalar z_displacement(2);
-        //TODO: Add dim == 2 case (NOW: Fix leftmost face)
-        
+        // TODO: Add dim == 2 case (NOW: Fix leftmost face)
+
+        VectorTools::interpolate_boundary_values(
+            dof_handler, /*boundary_id=*/2,
+            Functions::ZeroFunction<dim>(n_components), constraints,
+            fe.component_mask(y_displacement)); // Constrain y-direction
+
+        // +y face: Partially constrained
+        VectorTools::interpolate_boundary_values(
+            dof_handler, /*boundary_id=*/3,
+            Functions::ZeroFunction<dim>(n_components), constraints,
+            (fe.component_mask(x_displacement) |
+             fe.component_mask(z_displacement)));
 
         {
-            const int boundary_id = 0;
+            const int boundary_id = 6;
 
             VectorTools::interpolate_boundary_values(
                 dof_handler, boundary_id,
                 Functions::ZeroFunction<dim>(n_components), constraints,
-                (
-                 fe.component_mask(y_displacement)));
+                (fe.component_mask(x_displacement) |
+                 fe.component_mask(z_displacement)));
         }
-       
-        
+
     } else {
         if (constraints.has_inhomogeneities()) {
             AffineConstraints<double> homogeneous_constraints(constraints);
@@ -1449,8 +1455,8 @@ int main() {
 
     try {
         const unsigned int dim = 3;
-        
-        Solid<dim> solid("parameters.prm");
+
+        Solid<dim> solid("../../parameters.prm");
         solid.run();
     } catch (std::exception &exc) {
         std::cerr << std::endl

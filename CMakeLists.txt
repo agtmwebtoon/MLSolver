@@ -1,28 +1,27 @@
 ##
-#  CMake script for the step-3 tutorial program:
+#  CMake script for the MLSolver program:
 ##
 
 # Set the name of the project and target:
 set(TARGET "main")
 
-# Declare all source files the target consists of. Here, this is only
-# the one step-X.cc file, but as you expand your project you may wish
-# to add other source files as well. If your project becomes much larger,
-# you may want to either replace the following statement by something like
-#    file(GLOB_RECURSE TARGET_SRC  "source/*.cc")
-#    file(GLOB_RECURSE TARGET_INC  "include/*.h")
-#    set(TARGET_SRC ${TARGET_SRC}  ${TARGET_INC})
-# or switch altogether to the large project CMakeLists.txt file discussed
-# in the "CMake in user projects" page accessible from the "User info"
-# page of the documentation.
+# Declare all source files the target consists of:
 set(TARGET_SRC
-  ${TARGET}.cc
+  ${TARGET}.cc             # Main source file
+  util/Parameters.cpp     # Parameters implementation file
   )
+
+# Include directories for headers:
+include_directories(
+  util                  # Include directory for Parameters.h
+  .                      # Current directory for main.cc and FEM.h
+)
 
 # Usually, you will not need to modify anything beyond this point...
 
 cmake_minimum_required(VERSION 3.13.4)
 
+# Find deal.II
 find_package(deal.II 9.6.0
   HINTS ${deal.II_DIR} ${DEAL_II_DIR} ../ ../../ $ENV{DEAL_II_DIR}
   )
