@@ -555,6 +555,51 @@ template <int dim> void Solid<dim>::make_grid() {
     std::cout << cnt << std::endl;
 }
 
+template <int dim> void Solid<dim>::make_grid_cooks() {
+  static_assert(dim == 3, "Cook's membrane extrusion requires dim == 3");
+
+  // 2D Trapezoidal Cook's membrane
+  std::vector<Point<2>> vertices_2d = {
+    {0.0, 0.0},
+    {48.0, 0.0},
+    {0.0, 44.0},
+    {48.0, 60.0}
+  };
+
+  std::vector<std::array<unsigned int, 4>> cell_vertices = {
+    {{0, 1, 3, 2}}
+  };
+
+  // 2D triangulation
+  Triangulation<2> triangulation_2d;
+  {
+    std::vector<CellData<2>> cells(cell_vertices.size());
+    for (unsigned int i = 0; i < cells.size(); ++i)
+      for (unsigned int j = 0; j < 4; ++j)
+        cells[i].vertices[j] = cell_vertices[i][j];
+
+    GridTools::consistently_order_cells(cells);
+    triangulation_2d.create_triangulation(vertices_2d, cells, SubCellData());
+  }
+
+  // Extrude in z-direction (e.g., 10 mm thick)
+  Triangulation<3> triangulation_3d;
+  GridGenerator::extrude_triangulation(triangulation_2d, 4, 2.5, triangulation_3d); // 4 slices, total 10 mm
+
+  this->triangulation.copy_triangulation(triangulation_3d);
+  vol_reference = GridTools::volume(this->triangulation);
+
+  std::cout << "Grid: Reference volume: " << vol_reference << std::endl;
+
+  // Optional: export to UCD
+  {
+    GridOut grid_out;
+    std::ofstream out("cooks_membrane_extruded.ucd");
+    grid_out.write_ucd(this->triangulation, out);
+    std::cout << "Exported mesh to cooks_membrane_extruded.ucd" << std::endl;
+  }
+}
+
 template <int dim> void Solid<dim>::make_grid_with_custom_mesh() {
     GridIn<dim> grid_in;
     grid_in.attach_triangulation(triangulation);
