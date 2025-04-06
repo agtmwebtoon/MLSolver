@@ -33,7 +33,7 @@ void Geometry::declare_parameters(ParameterHandler &prm) {
         prm.declare_entry("Grid scale", "1e-3", Patterns::Double(0.0),
                           "Global grid scaling factor");
         prm.declare_entry("Pressure ratio p/p0", "100",
-                          Patterns::Selection("20|40|60|80|100"),
+                          Patterns::Selection("1|20|40|60|80|100"),
                           "Ratio of applied pressure to reference pressure");
     }
     prm.leave_subsection();

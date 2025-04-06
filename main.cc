@@ -1,18 +1,4 @@
-/* ------------------------------------------------------------------------
- *
- * SPDX-License-Identifier: LGPL-2.1-or-later
- * Copyright (C) 2011 - 2024 by the deal.II authors and
- *                              & Jean-Paul Pelteret and Andrew McBride
- *
- * This file is part of the deal.II library.
- *
- * Part of the source code is dual licensed under Apache-2.0 WITH
- * LLVM-exception OR LGPL-2.1-or-later. Detailed license information
- * governing the source code and code contributions can be found in
- * LICENSE.md and CONTRIBUTING.md at the top level directory of deal.II.
- *
- * ------------------------------------------------------------------------
- *
+/*
  * Authors: Jean-Paul Pelteret, University of Cape Town,
  *          Andrew McBride, University of Erlangen-Nuremberg, 2010
  * Modifier: Minhyung Lee (KAIST, mhlee@kaist.ac.kr)
@@ -213,6 +199,10 @@ template <int dim> class Solid {
 
     void make_grid_with_custom_mesh();
 
+    void make_grid_cooks();
+
+    void cooks_membrane_grid(const unsigned int);
+
     void system_setup();
 
     void make_constraints(const unsigned int it_nr);
@@ -372,7 +362,9 @@ Solid<dim>::Solid(const std::string &input_file)
 }
 
 template <int dim> void Solid<dim>::run() {
-    make_grid();
+    // make_grid_cooks();
+    cooks_membrane_grid(20);
+    // make_grid();
     system_setup();
     {
         AffineConstraints<double> constraints;
@@ -542,8 +534,10 @@ template <int dim> void Solid<dim>::make_grid() {
             if (face->at_boundary() == true &&
                 face->center()[1] == 1.0 * parameters.scale) {
                 if (dim == 3) {
-                    if ((0.25 * parameters.scale < face->center()[0] && face->center()[0] < 0.75 * parameters.scale) &&
-                        (0.25 * parameters.scale < face->center()[2] && face->center()[2] < 0.75 * parameters.scale))
+                    if ((0.25 * parameters.scale < face->center()[0] &&
+                         face->center()[0] < 0.75 * parameters.scale) &&
+                        (0.25 * parameters.scale < face->center()[2] &&
+                         face->center()[2] < 0.75 * parameters.scale))
                         face->set_boundary_id(6);
                 } else {
                     if (face->center()[0] < 0.5 * parameters.scale)
@@ -555,49 +549,66 @@ template <int dim> void Solid<dim>::make_grid() {
     std::cout << cnt << std::endl;
 }
 
-template <int dim> void Solid<dim>::make_grid_cooks() {
-  static_assert(dim == 3, "Cook's membrane extrusion requires dim == 3");
+template <int dim> Point<dim> grid_y_transform(const Point<dim> &pt_in) {
+    const double &x = pt_in[0];
+    const double &y = pt_in[1];
 
-  // 2D Trapezoidal Cook's membrane
-  std::vector<Point<2>> vertices_2d = {
-    {0.0, 0.0},
-    {48.0, 0.0},
-    {0.0, 44.0},
-    {48.0, 60.0}
-  };
+    const double y_upper = 44.0 + (16.0 / 48.0) * x; // top edge line
+    const double y_lower = 0.0 + (44.0 / 48.0) * x;  // bottom edge line
+    const double theta = y / 44.0;
 
-  std::vector<std::array<unsigned int, 4>> cell_vertices = {
-    {{0, 1, 3, 2}}
-  };
+    const double y_transform = (1 - theta) * y_lower + theta * y_upper;
 
-  // 2D triangulation
-  Triangulation<2> triangulation_2d;
-  {
-    std::vector<CellData<2>> cells(cell_vertices.size());
-    for (unsigned int i = 0; i < cells.size(); ++i)
-      for (unsigned int j = 0; j < 4; ++j)
-        cells[i].vertices[j] = cell_vertices[i][j];
+    Point<dim> pt_out = pt_in;
+    pt_out[1] = y_transform;
 
-    GridTools::consistently_order_cells(cells);
-    triangulation_2d.create_triangulation(vertices_2d, cells, SubCellData());
-  }
+    return pt_out;
+}
 
-  // Extrude in z-direction (e.g., 10 mm thick)
-  Triangulation<3> triangulation_3d;
-  GridGenerator::extrude_triangulation(triangulation_2d, 4, 2.5, triangulation_3d); // 4 slices, total 10 mm
+template <int dim>
+void Solid<dim>::cooks_membrane_grid(const unsigned int elements_per_edge) {
 
-  this->triangulation.copy_triangulation(triangulation_3d);
-  vol_reference = GridTools::volume(this->triangulation);
+    std::vector<unsigned int> repetitions(dim, elements_per_edge);
 
-  std::cout << "Grid: Reference volume: " << vol_reference << std::endl;
+    if (dim == 3)
+        repetitions[2] = 1; // thickness direction
 
-  // Optional: export to UCD
-  {
-    GridOut grid_out;
-    std::ofstream out("cooks_membrane_extruded.ucd");
-    grid_out.write_ucd(this->triangulation, out);
-    std::cout << "Exported mesh to cooks_membrane_extruded.ucd" << std::endl;
-  }
+    const Point<dim> bottom_left =
+        (dim == 3 ? Point<dim>(0.0, 0.0, -0.5) : Point<dim>(0.0, 0.0));
+    const Point<dim> top_right =
+        (dim == 3 ? Point<dim>(48.0, 44.0, 0.5) : Point<dim>(48.0, 44.0));
+
+    GridGenerator::subdivided_hyper_rectangle(triangulation, repetitions,
+                                              bottom_left, top_right);
+
+    // Assign boundary IDs
+    const double tol = 1e-6;
+    for (auto cell : triangulation.active_cell_iterators())
+        for (unsigned int f = 0; f < GeometryInfo<dim>::faces_per_cell; ++f)
+            if (cell->face(f)->at_boundary()) {
+                const double x = cell->face(f)->center()[0];
+                if (std::abs(x - 0.0) < tol)
+                    cell->face(f)->set_boundary_id(1); // -X
+                else if (std::abs(x - 48.0) < tol)
+                    cell->face(f)->set_boundary_id(11); // +X
+                else if (dim == 3 &&
+                         std::abs(std::abs(cell->face(f)->center()[2]) - 0.5) <
+                             tol)
+                    cell->face(f)->set_boundary_id(2); // +Z / -Z
+                else
+                    cell->face(f)->set_boundary_id(3);
+            }
+
+    // Transform y-axis for Cook's beam shape
+    GridTools::transform(&grid_y_transform<dim>, triangulation);
+
+    GridTools::scale(parameters.scale, triangulation);
+    vol_reference = GridTools::volume(triangulation);
+    std::cout << "Grid:\n\t Reference volume: " << vol_reference << std::endl;
+
+    std::cout << "Cook's membrane grid created with "
+              << triangulation.n_active_cells() << " active cells."
+              << std::endl;
 }
 
 template <int dim> void Solid<dim>::make_grid_with_custom_mesh() {
@@ -685,7 +696,7 @@ template <int dim> void Solid<dim>::system_setup() {
     DoFRenumbering::Cuthill_McKee(dof_handler);
     DoFRenumbering::component_wise(dof_handler, block_component);
 
-    dofs_per_block =
+    dofs_per_block = dofs_per_block =
         DoFTools::count_dofs_per_fe_block(dof_handler, block_component);
 
     std::cout << "Triangulation:"
@@ -1119,7 +1130,7 @@ void Solid<dim>::assemble_system_one_cell(
     }
 
     for (const auto &face : cell->face_iterators())
-        if (face->at_boundary() && face->boundary_id() == 6) {
+        if (face->at_boundary() && face->boundary_id() == 11) {
             scratch.fe_face_values.reinit(cell, face);
 
             for (const unsigned int f_q_point :
@@ -1127,11 +1138,16 @@ void Solid<dim>::assemble_system_one_cell(
                 const Tensor<1, dim> &N =
                     scratch.fe_face_values.normal_vector(f_q_point);
 
+                Tensor<1, dim> dir;
+                dir[1] = -6.25;
+                dir[1] = -6.25;
+                //                const Tensor<1, dim> traction = 1.0 * dir;
+
                 static const double p0 =
-                    -4.0 / (parameters.scale * parameters.scale);
+                    -1.0 / (parameters.scale * parameters.scale);
                 const double time_ramp = (time.current() / time.end());
                 const double pressure = p0 * parameters.p_p0 * time_ramp;
-                const Tensor<1, dim> traction = pressure * N;
+                const Tensor<1, dim> traction = pressure * dir;
 
                 for (const unsigned int i : scratch.fe_values.dof_indices()) {
                     const unsigned int i_group =
@@ -1170,31 +1186,69 @@ template <int dim> void Solid<dim>::make_constraints(const unsigned int it_nr) {
     if (apply_dirichlet_bc) {
         constraints.clear();
 
+        //        for (const auto &cell : triangulation.active_cell_iterators())
+        //            for (unsigned int f = 0; f < cell->n_faces(); ++f)
+        //                if (cell->face(f)->at_boundary()){
+        //                    const unsigned int b_id =
+        //                    cell->face(f)->boundary_id(); const Point<dim>
+        //                    center = cell->face(f)->center();
+        //
+        //                    std::cout << "Boundary ID: " << b_id
+        //                              << " at center = (" << center[0]
+        //                              << ", " << center[1];
+        //                    if constexpr (dim == 3)
+        //                        std::cout << ", " << center[2];
+        //                    std::cout << ")" << std::endl;
+        //                }
+
+        // TODO: Add dim == 2 case (NOW: Fix leftmost face)
+
+        //        VectorTools::interpolate_boundary_values(
+        //            dof_handler, /*boundary_id=*/1,
+        //            Functions::ZeroFunction<dim>(n_components), constraints,
+        //            fe.component_mask(x_displacement)); // Constrain
+        //            y-direction
+        //
+        //        VectorTools::interpolate_boundary_values(
+        //            dof_handler, /*boundary_id=*/1,
+        //            Functions::ZeroFunction<dim>(n_components), constraints,
+        //            fe.component_mask(y_displacement)); // Constrain
+        //            y-direction
+        //
+        //        VectorTools::interpolate_boundary_values(
+        //            dof_handler, /*boundary_id=*/2,
+        //            Functions::ZeroFunction<dim>(n_components), constraints,
+        //            fe.component_mask(z_displacement)); // Constrain
+        //            y-direction
+
         const FEValuesExtractors::Scalar x_displacement(0);
         const FEValuesExtractors::Scalar y_displacement(1);
         const FEValuesExtractors::Scalar z_displacement(2);
-        // TODO: Add dim == 2 case (NOW: Fix leftmost face)
-
-        VectorTools::interpolate_boundary_values(
-            dof_handler, /*boundary_id=*/2,
-            Functions::ZeroFunction<dim>(n_components), constraints,
-            fe.component_mask(y_displacement)); // Constrain y-direction
-
-        // +y face: Partially constrained
-        VectorTools::interpolate_boundary_values(
-            dof_handler, /*boundary_id=*/3,
-            Functions::ZeroFunction<dim>(n_components), constraints,
-            (fe.component_mask(x_displacement) |
-             fe.component_mask(z_displacement)));
 
         {
-            const int boundary_id = 6;
+            const int boundary_id = 3;
 
             VectorTools::interpolate_boundary_values(
                 dof_handler, boundary_id,
                 Functions::ZeroFunction<dim>(n_components), constraints,
-                (fe.component_mask(x_displacement) |
-                 fe.component_mask(z_displacement)));
+                fe.component_mask(z_displacement));
+        }
+        {
+            const int boundary_id = 1;
+
+            VectorTools::interpolate_boundary_values(
+                dof_handler, boundary_id,
+                Functions::ZeroFunction<dim>(n_components), constraints,
+                fe.component_mask(u_fe));
+        }
+
+        {
+            const int boundary_id = 2;
+
+            VectorTools::interpolate_boundary_values(
+                dof_handler, boundary_id,
+                Functions::ZeroFunction<dim>(n_components), constraints,
+                fe.component_mask(z_displacement));
         }
 
     } else {
@@ -1482,12 +1536,61 @@ template <int dim> void Solid<dim>::output_results() const {
                              DataOut<dim>::type_dof_data,
                              data_component_interpretation);
 
+    Vector<double> stress_norm(triangulation.n_active_cells());
+    unsigned int counter = 0;
+    for (const auto &cell : triangulation.active_cell_iterators()) {
+        double accumulated_norm = 0.0;
+        const auto lqph = quadrature_point_history.get_data(cell);
+        for (unsigned int q = 0; q < n_q_points; ++q)
+            accumulated_norm += lqph[q]->get_tau().norm();
+
+        stress_norm[counter++] = accumulated_norm / n_q_points;
+    }
+    data_out.add_data_vector(stress_norm, "stress_norm");
+
     Vector<double> soln(solution_n.size());
     for (unsigned int i = 0; i < soln.size(); ++i)
         soln(i) = solution_n(i);
+
     const MappingQEulerian<dim> q_mapping(degree, dof_handler, soln);
+
+    Vector<double> displacement;
+    displacement.reinit(dof_handler.n_dofs());
+
+    for (unsigned int i = 0; i < dof_handler.n_dofs(); ++i)
+        displacement[i] = solution_n[i];
+
+    //    // 최대 Y 좌표 탐색
+    //    double max_y = -std::numeric_limits<double>::max();
+    //    Point<dim> max_point;
+    //
+    //    for (const auto &pt : support_points)
+    //    {
+    //        if (pt[1] > max_y)
+    //        {
+    //            max_y = pt[1];
+    //            max_point = pt;
+    //        }
+    //    }
+    //
+    //    std::cout << "📍 변형된 후 가장 높은 Y 위치: " << max_point <<
+    //    std::endl;
+
     data_out.build_patches(q_mapping, degree);
 
+    const auto &patches = data_out.get_patches();
+    double max_y = -std::numeric_limits<double>::max();
+    Point<dim> max_point;
+    for (const auto &patch : patches) {
+
+        for (const auto &vertex : patch.vertices) {
+            if (vertex[1] > max_y) {
+                max_y = vertex[1];
+                max_point = vertex;
+            }
+        }
+    }
+    std::cout << "📍 변형된 후 가장 높은 Y 위치: " << max_point << std::endl;
     std::ofstream output("solution-" + std::to_string(dim) + "d-" +
                          std::to_string(time.get_timestep()) + ".vtu");
     data_out.write_vtu(output);
