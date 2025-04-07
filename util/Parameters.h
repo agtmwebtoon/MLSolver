@@ -28,7 +28,7 @@ struct Geometry {
     unsigned int global_refinement;
     double scale;
     double p_p0;
-
+    int cellnum;
     static void declare_parameters(ParameterHandler &prm);
     void parse_parameters(ParameterHandler &prm);
 };

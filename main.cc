@@ -363,7 +363,7 @@ Solid<dim>::Solid(const std::string &input_file)
 
 template <int dim> void Solid<dim>::run() {
     // make_grid_cooks();
-    cooks_membrane_grid(20);
+    cooks_membrane_grid(parameters.cellnum);
     // make_grid();
     system_setup();
     {
@@ -1139,12 +1139,11 @@ void Solid<dim>::assemble_system_one_cell(
                     scratch.fe_face_values.normal_vector(f_q_point);
 
                 Tensor<1, dim> dir;
-                dir[1] = -6.25;
-                dir[1] = -6.25;
+                dir[1] = 0.0625;
                 //                const Tensor<1, dim> traction = 1.0 * dir;
 
                 static const double p0 =
-                    -1.0 / (parameters.scale * parameters.scale);
+                    1.0 / (parameters.scale * parameters.scale);
                 const double time_ramp = (time.current() / time.end());
                 const double pressure = p0 * parameters.p_p0 * time_ramp;
                 const Tensor<1, dim> traction = pressure * dir;

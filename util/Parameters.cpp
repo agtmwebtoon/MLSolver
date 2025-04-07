@@ -32,6 +32,8 @@ void Geometry::declare_parameters(ParameterHandler &prm) {
                           "Global refinement level");
         prm.declare_entry("Grid scale", "1e-3", Patterns::Double(0.0),
                           "Global grid scaling factor");
+        prm.declare_entry("cell num", "12", Patterns::Integer(0.0),
+                          "cooks cell num");
         prm.declare_entry("Pressure ratio p/p0", "100",
                           Patterns::Selection("1|20|40|60|80|100"),
                           "Ratio of applied pressure to reference pressure");
@@ -45,6 +47,7 @@ void Geometry::parse_parameters(ParameterHandler &prm) {
         global_refinement = prm.get_integer("Global refinement");
         scale = prm.get_double("Grid scale");
         p_p0 = prm.get_double("Pressure ratio p/p0");
+        cellnum = prm.get_integer("cell num");
     }
     prm.leave_subsection();
 }
