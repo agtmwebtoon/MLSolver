@@ -571,12 +571,12 @@ void Solid<dim>::cooks_membrane_grid(const unsigned int elements_per_edge) {
     std::vector<unsigned int> repetitions(dim, elements_per_edge);
 
     if (dim == 3)
-        repetitions[2] = 1; // thickness direction
+        repetitions[2] = 2; // thickness direction
 
     const Point<dim> bottom_left =
-        (dim == 3 ? Point<dim>(0.0, 0.0, -0.5) : Point<dim>(0.0, 0.0));
+        (dim == 3 ? Point<dim>(0.0, 0.0, -2.5) : Point<dim>(0.0, 0.0));
     const Point<dim> top_right =
-        (dim == 3 ? Point<dim>(48.0, 44.0, 0.5) : Point<dim>(48.0, 44.0));
+        (dim == 3 ? Point<dim>(48.0, 44.0, 2.5) : Point<dim>(48.0, 44.0));
 
     GridGenerator::subdivided_hyper_rectangle(triangulation, repetitions,
                                               bottom_left, top_right);
@@ -589,7 +589,7 @@ void Solid<dim>::cooks_membrane_grid(const unsigned int elements_per_edge) {
                 const double x = cell->face(f)->center()[0];
                 if (std::abs(x - 0.0) < tol)
                     cell->face(f)->set_boundary_id(1); // -X
-                else if (std::abs(x - 48.0) < tol)
+                else if (std::abs(x - 48.0) < tol && std::abs(x - 48.0) < tol )
                     cell->face(f)->set_boundary_id(11); // +X
                 else if (dim == 3 &&
                          std::abs(std::abs(cell->face(f)->center()[2]) - 0.5) <
@@ -1559,22 +1559,6 @@ template <int dim> void Solid<dim>::output_results() const {
     for (unsigned int i = 0; i < dof_handler.n_dofs(); ++i)
         displacement[i] = solution_n[i];
 
-    //    // 최대 Y 좌표 탐색
-    //    double max_y = -std::numeric_limits<double>::max();
-    //    Point<dim> max_point;
-    //
-    //    for (const auto &pt : support_points)
-    //    {
-    //        if (pt[1] > max_y)
-    //        {
-    //            max_y = pt[1];
-    //            max_point = pt;
-    //        }
-    //    }
-    //
-    //    std::cout << "📍 변형된 후 가장 높은 Y 위치: " << max_point <<
-    //    std::endl;
-
     data_out.build_patches(q_mapping, degree);
 
     const auto &patches = data_out.get_patches();
@@ -1589,7 +1573,8 @@ template <int dim> void Solid<dim>::output_results() const {
             }
         }
     }
-    std::cout << "📍 변형된 후 가장 높은 Y 위치: " << max_point << std::endl;
+    std::cout << std::fixed << std::setprecision(6);
+    std::cout << "Heightest position when deformed state: " << max_point << std::endl;
     std::ofstream output("solution-" + std::to_string(dim) + "d-" +
                          std::to_string(time.get_timestep()) + ".vtu");
     data_out.write_vtu(output);

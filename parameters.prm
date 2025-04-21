@@ -14,13 +14,13 @@ subsection Geometry
   set Global refinement = 3
 
   # Global grid scaling factor
-  set Grid scale = 1e-3
+  set Grid scale = 1
   
   # Cooks membrane cellnum
-  set cell num = 16
+  set cell num = 40
 
   # Ratio of applied pressure to reference pressure
-  set Pressure ratio p/p0 = 100
+  set Pressure ratio p/p0 = 1.0
 end
 
 subsection Linear solver
@@ -43,7 +43,7 @@ subsection Linear solver
   set Preconditioner relaxation = 0.65
 
   # Type of solver used to solve the linear system
-  set Solver type = CG
+  set Solver type = Direct
 end
 
 subsection Material properties
@@ -51,7 +51,7 @@ subsection Material properties
   set Poisson's ratio = 0.499
 
   # Shear modulus
-  set Shear modulus = 80.194e6
+  set Shear modulus = 23.3489
 end
 
 subsection Nonlinear solver
@@ -65,9 +65,9 @@ subsection Nonlinear solver
   set Tolerance force = 1.0e-7
 end
 
-subsection Time
+subsection Time 
   # End time
-  set End time = 1
+  set End time = 1.0
 
   # Time step size
   set Time step size = 0.1
